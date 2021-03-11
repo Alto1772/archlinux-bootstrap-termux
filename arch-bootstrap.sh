@@ -17,7 +17,7 @@ mkdir -p "$CACHEDIR"
 set -e
 pkg install proot
 
-[ ! -e pacman-static ] && wget -O pacman-static "$PACMAN_STATIC"
+[ ! -e pacman-static ] && wget -O pacman-static "$PACMAN_STATIC" && chmod +x pacman-static
 
 [ ! -e pacman.conf ] && cat > pacman.conf << 'CONF'
 # temporary pacman.conf file for
