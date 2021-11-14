@@ -4,55 +4,75 @@ set -u
 umask 022
 
 REPONAME=Alto1772/archlinux-bootstrap-termux
-ROOTFS="${ROOTFS:-arch-rootfs}"
-PACMAN_STATIC="https://github.com/${REPONAME}/raw/main/pacman-static"
+ROOTFS="$(realpath "${ROOTFS:-arch-rootfs}")"
 CACHEDIR="${CACHEDIR:-${HOME}/.cache/pacman-pkg}"
 
 [ -e "$ROOTFS" ] && echo "$ROOTFS" exists, please remove it... && exit 1
 
 mkdir -p "${ROOTFS}/var/lib/pacman"
 mkdir -p "${ROOTFS}/var/cache/pacman/pkg"
+mkdir -p "${ROOTFS}/var/log"
 mkdir -p "$CACHEDIR"
 
 set -e
-pkg install proot
+pkg install -y proot pacman
 
-[ ! -e pacman-static ] && wget -O pacman-static "$PACMAN_STATIC" && chmod +x pacman-static
-
-[ ! -e pacman.conf ] && cat > pacman.conf << 'CONF'
+cat > pacman.conf << CONF
 # temporary pacman.conf file for
-# bootstrapping filesystem and pacman
+# bootstrapping filesystem and pacman (stage 1)
 
 [options]
+#RootDir     = $ROOTFS
+DBPath      = $ROOTFS/var/lib/pacman/
+CacheDir    = $CACHEDIR
+LogFile     = $ROOTFS/var/log/pacman.log
+GPGDir      = $ROOTFS/etc/pacman.d/gnupg/
+HookDir     = $ROOTFS/etc/pacman.d/hooks/
+
 Architecture = auto
+ParallelDownloads = 3
 CheckSpace
 
 # core first
 [core]
 SigLevel = Never
-Server = http://mirror.archlinuxarm.org/$arch/core
+Server = http://mirror.archlinuxarm.org/\$arch/core
 CONF
 
-[ ! -e resolv.conf ] && cat > resolv.conf << 'CONF'
-# google public dns
-nameserver 8.8.8.8
-nameserver 8.8.4.4
+proot --link2symlink pacman --config pacman.conf \
+    --cachedir "$CACHEDIR" --root "$ROOTFS" \
+    -Sy --noconfirm --asdeps filesystem
+
+cp $PREFIX/etc/resolv.conf "${ROOTFS}/etc/resolv.conf"
+cat > pacman.conf << CONF
+# temporary pacman.conf file for
+# bootstrapping filesystem and pacman (stage 2)
+
+[options]
+#RootDir     = /
+DBPath      = /var/lib/pacman/
+CacheDir    = /var/cache/pacman/pkg
+LogFile     = /var/log/pacman.log
+GPGDir      = /etc/pacman.d/gnupg/
+HookDir     = /etc/pacman.d/hooks/
+
+Architecture = auto
+ParallelDownloads = 3
+CheckSpace
+
+# core first
+[core]
+SigLevel = Never
+Server = http://mirror.archlinuxarm.org/\$arch/core
 CONF
 
 unset LD_PRELOAD
-proot --link2symlink -0 \
-    -b resolv.conf:/etc/resolv.conf \
-    -b /proc/self/mounts:/etc/mtab \
-    ./pacman-static --config pacman.conf --cachedir "$CACHEDIR" \
-    --root "$ROOTFS" -Sy --noconfirm --asdeps filesystem
-
-cp resolv.conf "${ROOTFS}/etc/resolv.conf"
-proot --link2symlink -0 -r "$ROOTFS" \
+proot --link2symlink -r "$ROOTFS" \
     -b /dev -b /proc -b /sys \
     -b /system -b /apex -b /data/data/com.termux/files \
     -b "$CACHEDIR":/var/cache/pacman/pkg \
     env PATH=/bin:/usr/bin:/sbin:/usr/sbin:$PREFIX/bin \
-    ./pacman-static --config pacman.conf -Sy --noconfirm --asdeps pacman gawk
+    pacman --config pacman.conf -Sy --noconfirm --asdeps pacman gawk
 
 cat > startarch << SHELL
 #!/data/data/com.termux/files/usr/bin/sh
